@@ -1,0 +1,99 @@
+name: CI/CD Pipeline
+
+on:
+    push:
+        branches:
+            - main
+    pull_request:
+        branches:
+            - main
+
+jobs:
+    test-and-coverage:
+        name: Testes Unitários e Coverage
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout código
+              uses: actions/checkout@v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "20"
+                  cache: "npm"
+
+            - name: Instalar dependências
+              run: npm ci
+
+            - name: Rodar testes com coverage
+              run: npm run test:cov
+
+            - name: Salvar artefato de Coverage
+              uses: actions/upload-artifact@v4
+              with:
+                  name: coverage-report
+                  path: coverage/
+                  retention-days: 7
+
+    build-and-package:
+        name: Build e Empacotamento (.zip)
+        needs: test-and-coverage
+        runs-on: ubuntu-latest
+        environment: production
+        steps:
+            - name: Checkout código
+              uses: actions/checkout@v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "20"
+                  cache: "npm"
+
+            - name: Instalar dependências e Build
+              run: |
+                  npm ci
+                  # Se você tiver um script de build (ex: tsc), descomente a linha abaixo:
+                  # npm run build
+
+            - name: Remover dependências de desenvolvimento
+              run: npm prune --production
+
+            - name: Criar arquivo ZIP
+              run: zip -r release.zip . -x "*.git*" "*app.test.ts*" "*coverage*" "*jest.config.mjs*" "*tsconfig.json*"
+
+            - name: Upload do Artefato ZIP
+              uses: actions/upload-artifact@v4
+              with:
+                  name: projeto-api-cep
+                  path: release.zip
+                  retention-days: 30
+    deploy:
+        name: Production Deploy
+        needs: [build-and-push, security-and-analysis]
+        runs-on: ubuntu-latest
+        environment: production
+        steps:
+            - name: Deploy via SSH
+              uses: appleboy/ssh-action@master
+              with:
+                  host: ${{ secrets.SSH_HOST }}
+                  username: ${{ secrets.SSH_USER }}
+                  key: ${{ secrets.SSH_KEY }}
+                  script: |
+                      # Entra na home do usuário
+                      cd ~
+
+                      # Se o projeto não existe, clone. Se existe, pull
+                      if [ ! -d "lazarini-app" ]; then
+                        git clone https://github.com/Joljolionn/teste_api_CEP_CI-CD lazarini-app
+                      fi
+
+                      cd lazarini-app
+                      git pull origin main
+
+                      # Atualiza e sobe a nova infraestrutura
+                      docker compose pull
+                      docker compose up -d
+
+                      echo "Deploy concluído com sucesso!"
