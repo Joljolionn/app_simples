@@ -70,7 +70,7 @@ jobs:
                   retention-days: 30
     deploy:
         name: Production Deploy
-        needs: [build-and-push, security-and-analysis]
+        needs: [build-and-package]
         runs-on: ubuntu-latest
         environment: production
         steps:
